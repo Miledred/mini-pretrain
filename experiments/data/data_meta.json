@@ -1,0 +1,14 @@
+{
+  "tokenizer_name": "gpt2",
+  "vocab_size": 50257,
+  "train": {
+    "file": "train.bin",
+    "dtype": "uint16",
+    "num_tokens": 114140917
+  },
+  "val": {
+    "file": "val.bin",
+    "dtype": "uint16",
+    "num_tokens": 239536
+  }
+}

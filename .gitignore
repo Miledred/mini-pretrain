@@ -27,7 +27,9 @@ Thumbs.db
 .release-staging/
 
 # Dataset files
-data/
+# Only the generated dataset at the repository root is excluded.  The small
+# provenance record in experiments/data/data_meta.json is part of the archive.
+/data/
 *.bin
 
 # Training outputs
