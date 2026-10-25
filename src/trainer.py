@@ -1,4 +1,3 @@
-import math
 import torch
 
 
@@ -14,15 +13,22 @@ class Trainer:
         self.device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
 
-        # Internal step counter for low-frequency statistics
+        # Internal counter for optimizer update steps
         self.global_step = 0
 
-        # Update-stat control:
-        # compute heavy stats every N steps instead of every step
-        self.track_update_stats = getattr(cfg, "track_update_stats", True)
-        self.update_stats_interval = max(1, int(getattr(cfg, "update_stats_interval", 100)))
+        # Gradient accumulation
+        self.grad_accum_steps = max(1, int(getattr(cfg, "grad_accum_steps", 1)))
 
-        # Cache the last computed heavy stats so train.py does not need to change
+        # Update-stat control:
+        # Computing update norm requires parameter snapshots, so it is expensive.
+        # We compute it every N update steps instead of every step.
+        self.track_update_stats = getattr(cfg, "track_update_stats", True)
+        self.update_stats_interval = max(
+            1,
+            int(getattr(cfg, "update_stats_interval", 100)),
+        )
+
+        # Cached heavy statistics
         self.last_param_norm = 0.0
         self.last_update_norm = 0.0
         self.last_num_updated_params = 0
@@ -76,19 +82,45 @@ class Trainer:
 
         return (self.global_step % self.update_stats_interval) == 0
 
-    def train_step(self, batch):
+    def train_step(self, micro_batches):
+        """
+        Run one optimizer update step.
+
+        micro_batches can be:
+        - a single batch dict
+        - a list of batch dicts
+
+        If grad_accum_steps > 1, train.py passes multiple micro-batches here.
+        The loss is divided by the number of micro-batches before backward(),
+        so the accumulated gradient is an average-gradient estimate rather than
+        an unnormalized sum.
+        """
         self.global_step += 1
         self.model.train()
 
-        input_ids = batch["input_ids"].to(self.device, non_blocking=True)
-        labels = batch["labels"].to(self.device, non_blocking=True)
+        if isinstance(micro_batches, dict):
+            micro_batches = [micro_batches]
+
+        num_micro_batches = max(1, len(micro_batches))
 
         self.optimizer.zero_grad(set_to_none=True)
 
-        outputs = self.model(input_ids=input_ids, labels=labels)
-        loss = outputs.loss
+        total_loss = 0.0
 
-        loss.backward()
+        for batch in micro_batches:
+            input_ids = batch["input_ids"].to(self.device, non_blocking=True)
+            labels = batch["labels"].to(self.device, non_blocking=True)
+
+            outputs = self.model(input_ids=input_ids, labels=labels)
+            loss = outputs.loss
+
+            # Average the accumulated gradient across micro-batches.
+            scaled_loss = loss / num_micro_batches
+            scaled_loss.backward()
+
+            total_loss += loss.item()
+
+        avg_loss = total_loss / num_micro_batches
 
         if self.cfg.grad_clip_norm is not None and self.cfg.grad_clip_norm > 0:
             grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -106,7 +138,7 @@ class Trainer:
         if do_heavy_stats:
             params_before_step = self._snapshot_trainable_params()
 
-        # log lr used for this step
+        # Learning rate used for this optimizer update
         lr = self.optimizer.param_groups[0]["lr"]
 
         self.optimizer.step()
@@ -115,7 +147,9 @@ class Trainer:
             self.scheduler.step()
 
         if do_heavy_stats:
-            update_norm, num_updated_params = self._compute_update_stats(params_before_step)
+            update_norm, num_updated_params = self._compute_update_stats(
+                params_before_step
+            )
             param_norm = self._compute_param_norm()
             update_ratio = update_norm / (param_norm + 1e-12)
 
@@ -125,13 +159,14 @@ class Trainer:
             self.last_update_ratio = update_ratio
 
         metrics = {
-            "loss": loss.item(),
+            "loss": float(avg_loss),
             "grad_norm": float(grad_norm),
             "param_norm": float(self.last_param_norm),
             "update_norm": float(self.last_update_norm),
             "num_updated_params": int(self.last_num_updated_params),
             "update_ratio": float(self.last_update_ratio),
             "lr": float(lr),
+            "micro_batches": int(num_micro_batches),
         }
         return metrics
 
@@ -142,7 +177,12 @@ class Trainer:
         total_loss = 0.0
         total_batches = 0
 
-        for batch in self.val_loader:
+        eval_max_batches = getattr(self.cfg, "eval_max_batches", None)
+
+        for batch_idx, batch in enumerate(self.val_loader):
+            if eval_max_batches is not None and batch_idx >= eval_max_batches:
+                break
+
             input_ids = batch["input_ids"].to(self.device, non_blocking=True)
             labels = batch["labels"].to(self.device, non_blocking=True)
 

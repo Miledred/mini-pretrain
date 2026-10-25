@@ -2,7 +2,7 @@
 
 A lightweight PyTorch-based language model pretraining project for studying optimizer behavior and training dynamics.
 
-This project builds a small GPT-style causal language modeling pipeline from data preprocessing to training, logging, checkpointing, and text generation. The current baseline focuses on a custom hand-written AdamW optimizer, with the long-term goal of extending the framework to compare AdamW with more advanced optimizers such as Shampoo, SOAP, and Muon.
+This project builds a small GPT-style causal language modeling pipeline from data preprocessing to training, logging, checkpointing, and text generation. It includes a custom hand-written AdamW baseline and a hybrid Muon + AdamW implementation, providing a controlled setting for optimizer comparisons before extending to methods such as Shampoo and SOAP.
 
 ## Overview
 
@@ -13,11 +13,13 @@ The project currently supports:
 - WikiText data preprocessing
 - GPT-style causal language model training
 - Custom AdamW optimizer implementation
+- Hybrid Muon + AdamW optimizer implementation
 - Memory-mapped token dataset loading
 - TensorBoard visualization
 - CSV metric logging
 - Checkpoint saving and resume support
 - Text generation from trained checkpoints
+- Reproducible optimizer-comparison reports and archived per-step metrics
 
 ## Features
 
@@ -335,7 +337,13 @@ In modern society, technology has
 
 ## Current Status
 
-The current version has completed a custom AdamW baseline training pipeline. It supports larger WikiText-based training, TensorBoard monitoring, checkpointing, and qualitative sampling.
+The current version contains the completed AdamW baseline and a hybrid Muon + AdamW implementation. The archived experiments include:
+
+- Phase 1: L4 and L8 AdamW WikiText pretraining baselines.
+- Phase 2: AdamW/Muon learning-rate comparisons and a two-seed check (42 and 123).
+- Curated reports, figures, presentation decks, fixed-prompt samples, per-step CSV metrics, and normalized run configurations.
+
+The tuned 50k-step comparison found nearly tied best validation loss for AdamW at `5e-4` (5.1682) and Muon at `7.5e-4` (5.1705). The two-seed archive favors AdamW on the available runs and shows higher Muon variability; this is evidence from two seeds, not a final statistical claim. Muon also had lower throughput in these runs. See [the experiment archive](experiments/README.md) for scope, raw-metric locations, data provenance, and retention policy.
 
 The default model configuration is designed as a medium-scale experimental model rather than a toy single-batch example. It is suitable for studying optimizer behavior before moving to more advanced optimizer reproduction.
 
@@ -343,12 +351,10 @@ The default model configuration is designed as a medium-scale experimental model
 
 Planned extensions include:
 
-- Implement Shampoo optimizer
-- Implement SOAP optimizer
-- Implement Muon optimizer
-- Add optimizer comparison scripts
-- Add experiment configuration files
-- Add automatic plotting from CSV logs
+- Add independent seeds and confidence intervals for optimizer comparisons
+- Implement Shampoo and SOAP optimizers
+- Add configuration files for new ablations
+- Add automated regression checks for optimizer state and scheduler behavior
 - Add more stable sampling and evaluation utilities
 - Compare training speed, convergence behavior, memory usage, and update statistics across optimizers
 
@@ -369,6 +375,8 @@ events.out.tfevents.*
 ```
 
 This keeps the repository lightweight and focused on source code.
+
+The curated evidence for completed experiments is an exception: normalized run configurations and the unique per-step CSV metrics are kept under `experiments/`. TensorBoard event files, regenerated datasets, virtual environments, and redundant periodic checkpoints remain excluded.
 
 ## Motivation
 

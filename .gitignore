@@ -17,6 +17,15 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
+# Local secrets and machine-specific credentials
+.env
+.env.*
+*.key
+*.pem
+
+# Temporary files prepared for GitHub Release uploads
+.release-staging/
+
 # Dataset files
 data/
 *.bin
